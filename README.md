@@ -4,7 +4,7 @@
 
 Built following **Linus Torvalds principles**: Simple, modular, debuggable, and it just works. No magic, no bullshit.
 
-[![Tests](https://img.shields.io/badge/tests-5%2F5%20passing-brightgreen)]() [![Architecture](https://img.shields.io/badge/architecture-proven-blue)]() [![License](https://img.shields.io/badge/license-MIT-green)]()
+[![Tests](https://img.shields.io/badge/tests-6%2F6%20passing-brightgreen)]() [![Architecture](https://img.shields.io/badge/architecture-proven-blue)]() [![License](https://img.shields.io/badge/license-MIT-green)]()
 
 ## 🚀 What This Does
 
@@ -23,6 +23,12 @@ Transform Claude Code into a **distributed development powerhouse**:
     ↓
 ✅ Complete, tested feature delivered
 ```
+
+**Why it works in production environments**
+- Dependency- and artifact-aware scheduling prevents conflicting diffs
+- Feature-level token budgets and per-type rate limits keep costs predictable
+- Structured events and namespaced queues make observability trivial
+- Optional sandboxing and log redaction keep secrets out of transcripts
 
 ## 📋 Table of Contents
 
@@ -80,12 +86,12 @@ Transform Claude Code into a **distributed development powerhouse**:
 
 ### Data Flow
 ```
-1. Feature Request → Task Decomposition
-2. Tasks → Redis Queue
-3. Workers Pull Tasks → Execute with Agno
-4. Results → Redis Results Queue
-5. Failed Tasks → Auto-retry with New Worker
-6. Health Checks → Auto-recovery
+1. Feature request → planner builds TaskSpec DAG with budgets and artifacts
+2. Tasks land in namespaced Redis queues + SQLite for idempotency
+3. Scheduler assigns work only when dependencies, budgets, and artifact locks allow
+4. Workers execute in (optional) sandbox, redact secrets, and report structured results
+5. Merger/validator pipeline records outputs, consumes feature budgets, and emits events
+6. Health checks, rate limiting, and retries keep the swarm stable
 ```
 
 ## 🏃 Quick Start
@@ -128,17 +134,12 @@ redis-server                       # macOS
 
 ### Verify Installation
 ```bash
-# Run system tests
+# Run system test suite
 source venv/bin/activate
-python tests/test_system.py
+pytest -q
 
 # Expected output:
-# ✅ PASS Configuration Loading
-# ✅ PASS Redis Integration
-# ✅ PASS Orchestrator Basic
-# ✅ PASS Worker Creation
-# ✅ PASS MCP Server
-# 🎉 ALL TESTS PASSED!
+# 6 passed in ...s
 ```
 
 ### Claude Code Integration
@@ -164,6 +165,8 @@ python tests/test_system.py
 "Spawn 20 coding agents to implement user dashboard with authentication"
 "Get real-time status of all distributed agents"
 "Kill all agents when complete"
+"Drain the orchestrator and stop accepting new work"
+"Scale worker pool to 40"
 ```
 
 ## 🔧 Components Deep Dive
@@ -192,13 +195,27 @@ python tests/test_system.py
   orchestrator_running: true,
   tasks: { pending: 15, running: 5, completed: 8 },
   workers: { idle: 10, working: 5, dead: 0 },
-  queues: { task_queue: 20, result_queue: 8 }
+  queues: { task_queue: 20, result_queue: 8, event_queue: 12 }
 }
 
 // kill_all: Stop all processes and cleanup
 {
   status: "stopped",
   workers_killed: 45
+}
+
+// drain: Graceful shutdown without new work
+{
+  status: "drained",
+  workers_killed: 15,
+  snapshot: { ... }
+}
+
+// scale_workers: Best-effort scaling of worker pool
+{
+  status: "scaled",
+  target: 40,
+  spawned: ["worker_backend_...", "worker_frontend_..."]
 }
 ```
 
@@ -209,35 +226,42 @@ python tests/test_system.py
 **Tech Stack**: Python + SQLite + Redis + Agno
 
 **Key Features**:
-- **Task Decomposition**: Intelligent feature → task breakdown
-- **Worker Lifecycle**: Spawn, monitor, health check, respawn
-- **Fault Recovery**: Auto-detect failures, replace workers
-- **Load Balancing**: Distribute tasks across worker types
+- **TaskSpec DAG**: Dependency-aware decomposition with inputs, artifacts, budgets, and acceptance tests
+- **Adaptive Scheduler**: Enforces dependency order, artifact locks, feature token budgets, and rate limits before dispatch
+- **Structured Events**: Every assignment, defer, completion, and failure is pushed to `system_events`
+- **Merger + Validator Hooks**: Pluggable pipeline primes git integration and CI enforcement
+- **Worker Lifecycle**: Spawn, monitor, sandbox, respawn with health, CPU, and memory enforcement
 
 **Core Logic**:
 ```python
-# Feature decomposition
-feature = "Build e-commerce cart system"
-tasks = [
-  Task(type="backend", prompt="Implement cart API endpoints"),
-  Task(type="frontend", prompt="Build cart UI components"),
-  Task(type="test", prompt="Write cart integration tests"),
-  Task(type="docs", prompt="Document cart API")
-]
+feature_id = "feature_checkout"
+tasks = orchestrator.decomposer.decompose(
+    feature_id,
+    "Build e-commerce cart system"
+)
 
-# Worker management
-for task_type in ["backend", "frontend", "test", "docs"]:
-    worker = spawn_worker(task_type)
-    monitor_health(worker)
-    if worker.dead():
-        respawn_worker(task_type)
+# Example backend TaskSpec
+backend_task = tasks[0]
+assert backend_task.type == "backend"
+assert backend_task.artifacts == ["services/cart.py"]
+assert backend_task.acceptance_tests == ["pytest backend"]
+
+# Scheduler will only assign when dependencies + budgets + locks are satisfied
+orchestrator.store_tasks(tasks)
+assignments = orchestrator.redis_client.lrange('system_events', 0, 10)
 ```
 
 ### 3. Worker Agents (`workers/`)
 
-**Purpose**: Specialized coding agents powered by Agno
+**Purpose**: Specialized coding agents powered by Agno with per-type models
 
 **Tech Stack**: Python + Agno + OpenAI + Redis
+
+**Safety & Ops**:
+- Optional sandbox mode via `SANDBOX_MODE`
+- Secrets masked in stdout/logs using configurable regex filters
+- Per-task-type model overrides (`config.yaml > task_types`)
+- Heartbeats, idle shutdown, and fail-fast error handling
 
 **Agent Types**:
 ```python
@@ -280,40 +304,54 @@ agent = Agent(
 
 **Key Sections**:
 ```yaml
-# System settings
 system:
-  name: "distributed-coding-agents"
-  debug: true
   log_level: "DEBUG"
 
-# Orchestrator limits
 orchestrator:
-  max_workers: 100        # Scale up to 100+ agents
-  task_timeout: 300       # 5 minutes max per task
-  health_check_interval: 5 # Check every 5 seconds
-  retry_limit: 3          # 3 attempts before marking failed
+  max_workers: 100
+  task_timeout: 300
+  retry_limit: 3
+  failure_threshold: 5
 
-# Redis configuration
 redis:
-  host: "localhost"
-  port: 6379
   queues:
     task_queue: "coding_tasks"
+    task_type_prefix: "tasks:type"
+    task_feature_prefix: "tasks:feature"
     result_queue: "completed_tasks"
     heartbeat_queue: "worker_heartbeats"
+    failure_queue: "failed_tasks"
+    assignment_queue: "task_assignments"
+    event_queue: "system_events"
 
-# AI model settings
+budgets:
+  default_tokens: 8000
+  per_task_type:
+    backend: 3000
+    frontend: 2000
+    test: 1500
+    docs: 500
+
+rate_limits:
+  window_seconds: 60
+  max_requests: 120
+
 agno:
-  model: "gpt-4o-mini"    # Or local model
+  model: "gpt-4o-mini"
   max_tokens: 4000
   temperature: 0.1
-  timeout: 60
 
-# Worker behavior
 worker:
-  heartbeat_interval: 10  # Send heartbeat every 10s
-  idle_timeout: 300       # Shutdown if idle 5 minutes
-  max_memory_mb: 512      # Memory limit per worker
+  heartbeat_interval: 10
+  idle_timeout: 300
+  max_memory_mb: 512
+  max_cpu_percent: 80
+
+security:
+  enable_sandbox: false
+  redact_patterns:
+    - "(?i)api[_-]?key[=:]\\s*\\S+"
+    - "(?i)secret[=:]\\s*\\S+"
 ```
 
 ## 📊 Testing & Validation
@@ -321,15 +359,16 @@ worker:
 ### System Tests
 ```bash
 source venv/bin/activate
-python tests/test_system.py
+pytest -q
 ```
 
 **Test Coverage**:
-- ✅ Configuration loading and validation
-- ✅ Redis connection and queue operations
-- ✅ Orchestrator task decomposition
-- ✅ Worker agent creation and CLI
-- ✅ MCP server compilation and startup
+- ✅ Configuration loading and Redis integration
+- ✅ Assignment flow with dependency + artifact conflict deferral
+- ✅ Retry exhaustion + failure queue recovery
+- ✅ Budget and rate-limit backpressure logic
+- ✅ Worker CLI redaction + task routing
+- ✅ MCP server build/startup sanity check
 
 ### Live Demo
 ```bash
@@ -342,6 +381,7 @@ python demo.py
 - 📊 **Real-time Monitoring** - Live system status
 - 🔧 **Failure Recovery** - Auto-replacement testing
 - 🔌 **MCP Integration** - Claude Code compatibility
+- 🧾 **Event Stream** - Inspect `system_events` for assignments, deferrals, completions
 
 ### Performance Benchmarks
 
@@ -393,6 +433,11 @@ docker-compose up -d
 # Using PM2
 pm2 start orchestrator/main.py --name orchestrator
 pm2 start ecosystem.config.js
+
+# CLI helpers
+python orchestrator/main.py --status
+python orchestrator/main.py --drain
+python orchestrator/main.py --scale 40
 ```
 
 ### Monitoring & Logging
@@ -402,13 +447,11 @@ tail -f logs/orchestrator.log
 tail -f logs/workers.log
 tail -f logs/errors.log
 
-# System metrics
-curl http://localhost:3000/metrics
-redis-cli info stats
+# Structured events
+redis-cli LRANGE system_events 0 10 | jq
 
-# Health checks
-curl http://localhost:3000/health
-python -c "from orchestrator.main import SimpleOrchestrator; print(SimpleOrchestrator().get_status())"
+# System status snapshot
+python -c "from orchestrator.main import SimpleOrchestrator; import json; print(json.dumps(SimpleOrchestrator().get_status(), indent=2))"
 ```
 
 ### High Availability Setup
@@ -438,11 +481,18 @@ task_types:
     tools: ["react_native_tools", "ios_tools", "android_tools"]
     max_concurrent: 15
     priority: 2
+    model: "gpt-4o"
+    max_tokens: 6000
 
   devops:
     tools: ["docker_tools", "kubernetes_tools", "terraform_tools"]
     max_concurrent: 5
     priority: 3
+
+# Per-feature overrides stay in SQLite; budgets consume as tasks complete
+```
+
+> Each task type can override `model`, `max_tokens`, and `temperature` for its workers. Feature token budgets are tracked in-process, so bump `budgets.per_task_type` if you create hungrier agents.
 ```
 
 ```python

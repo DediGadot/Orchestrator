@@ -20,8 +20,7 @@
     "fastmcp": "^1.0.0",
     "zod": "^3.22.0",
     "yaml": "^2.3.0",
-    "ioredis": "^5.3.0",
-    "child_process": "^1.0.2"
+    "ioredis": "^5.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

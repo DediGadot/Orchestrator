@@ -172,19 +172,18 @@ class DistributedCodingMCP {
         killed++;
       }
 
-      // Kill any remaining Python processes (workers)
-      try {
-        await execAsync("pkill -f 'workers/agent.py' || true");
-        await execAsync("pkill -f 'orchestrator/main.py' || true");
-      } catch (error) {
-        // Ignore errors from pkill (process might not exist)
-      }
+      // Delegate kill logic to orchestrator CLI for precise cleanup
+      const orchestratorPath = path.join(__dirname, "../../orchestrator/main.py");
+      const configPath = path.join(__dirname, "../../config.yaml");
+
+      await execAsync(`python3 "${orchestratorPath}" --config "${configPath}" --kill-all`);
 
       // Clear Redis queues
       await this.redis.del("coding_tasks");
       await this.redis.del("completed_tasks");
       await this.redis.del("worker_heartbeats");
       await this.redis.del("failed_tasks");
+      await this.redis.del("system_events");
 
       return {
         status: "stopped",
@@ -245,6 +244,39 @@ class DistributedCodingMCP {
         console.log("Killing all processes");
         const result = await this.killAllProcesses();
         return JSON.stringify(result, null, 2);
+      }
+    });
+
+    // Tool: drain
+    server.addTool({
+      name: "drain",
+      description: "Drain current workers and stop accepting new tasks",
+      parameters: z.object({}),
+      execute: async () => {
+        console.log("Draining orchestrator");
+        const orchestratorPath = path.join(__dirname, "../../orchestrator/main.py");
+        const configPath = path.join(__dirname, "../../config.yaml");
+        const { stdout } = await execAsync(`python3 "${orchestratorPath}" --config "${configPath}" --drain`);
+        return stdout ? stdout.trim() : JSON.stringify({ status: "drained" }, null, 2);
+      }
+    });
+
+    // Tool: scale_workers
+    server.addTool({
+      name: "scale_workers",
+      description: "Scale worker pool to the desired size",
+      parameters: z.object({
+        workers: z.number()
+          .min(1)
+          .max(this.config.orchestrator.max_workers)
+          .describe("Total number of workers desired")
+      }),
+      execute: async (args) => {
+        console.log(`Scaling orchestrator to ${args.workers} workers`);
+        const orchestratorPath = path.join(__dirname, "../../orchestrator/main.py");
+        const configPath = path.join(__dirname, "../../config.yaml");
+        const { stdout } = await execAsync(`python3 "${orchestratorPath}" --config "${configPath}" --scale ${args.workers}`);
+        return stdout ? stdout.trim() : JSON.stringify({ status: "scaled", target: args.workers }, null, 2);
       }
     });
 

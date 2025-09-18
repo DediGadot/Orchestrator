@@ -25,9 +25,13 @@ redis:
   socket_timeout: 30
   queues:
     task_queue: "coding_tasks"
+    task_type_prefix: "tasks:type"
+    task_feature_prefix: "tasks:feature"
     result_queue: "completed_tasks"
     heartbeat_queue: "worker_heartbeats"
     failure_queue: "failed_tasks"
+    assignment_queue: "task_assignments"
+    event_queue: "system_events"
   message_ttl: 3600  # seconds to keep messages
 
 storage:
@@ -53,6 +57,18 @@ worker:
   crash_restart_delay: 2  # seconds before restart after crash
   max_memory_mb: 512  # max memory per worker
   max_cpu_percent: 80  # max CPU usage per worker
+
+budgets:
+  default_tokens: 8000
+  per_task_type:
+    frontend: 2000
+    backend: 3000
+    test: 1500
+    docs: 500
+
+rate_limits:
+  window_seconds: 60
+  max_requests: 120
 
 mcp:
   server:
@@ -123,6 +139,12 @@ network:
 security:
   enable_auth: false  # Disabled for local development
   api_key: null
+  enable_sandbox: false
+  sandbox_root: "./sandbox"
+  redact_patterns:
+    - "(?i)api[_-]?key[=:]\\s*\\S+"
+    - "(?i)secret[=:]\\s*\\S+"
+  allow_env: []
   rate_limit:
     requests_per_minute: 1000
     burst_limit: 100

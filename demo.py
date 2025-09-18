@@ -100,7 +100,8 @@ class DistributedCodingDemo:
         print(f"🎯 Feature Request:\n{feature_request}")
 
         orchestrator = SimpleOrchestrator("config.yaml")
-        tasks = orchestrator.decompose_feature(feature_request.strip())
+        feature_id = f"demo_{int(time.time()*1000)}"
+        tasks = orchestrator.decompose_feature(feature_request.strip(), feature_id)
 
         print(f"\n🔄 Decomposed into {len(tasks)} parallel tasks:")
         for i, task in enumerate(tasks, 1):
