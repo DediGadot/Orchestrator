@@ -1,0 +1,31 @@
+# Distributed Coding Agent System Dependencies
+
+# Core agent framework
+agno>=1.0.0
+openai>=1.0.0
+
+# Database and storage
+redis>=4.5.0
+
+# Configuration and utilities
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Logging and monitoring
+structlog>=23.1.0
+
+# Process management
+psutil>=5.9.0
+
+# HTTP and networking
+requests>=2.31.0
+aioredis>=2.0.0
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.7.0
+flake8>=6.0.0
+
+# Type hints
+typing-extensions>=4.7.0

@@ -1,0 +1,134 @@
+# Distributed Coding Agent System Configuration
+# Single source of truth for all settings - no magic numbers in code
+
+system:
+  name: "distributed-coding-agents"
+  version: "1.0.0"
+  debug: true
+  log_level: "DEBUG"
+
+orchestrator:
+  max_workers: 100
+  min_workers: 1
+  spawn_timeout: 30  # seconds to wait for worker spawn
+  health_check_interval: 5  # seconds between health checks
+  task_timeout: 300  # max seconds for single task
+  retry_limit: 3
+  failure_threshold: 5  # max failures before marking worker as dead
+  replacement_delay: 2  # seconds to wait before spawning replacement
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: null
+  socket_timeout: 30
+  queues:
+    task_queue: "coding_tasks"
+    result_queue: "completed_tasks"
+    heartbeat_queue: "worker_heartbeats"
+    failure_queue: "failed_tasks"
+  message_ttl: 3600  # seconds to keep messages
+
+storage:
+  type: "sqlite"
+  path: "./orchestrator.db"
+  connection_pool_size: 10
+  pragma:
+    journal_mode: "WAL"
+    synchronous: "NORMAL"
+    cache_size: 1000
+
+agno:
+  model: "gpt-4o-mini"  # Free model for testing
+  max_tokens: 4000
+  temperature: 0.1
+  timeout: 60  # seconds for API calls
+  max_retries: 3
+  retry_delay: 1  # seconds between retries
+
+worker:
+  heartbeat_interval: 10  # seconds between heartbeats
+  idle_timeout: 300  # seconds before idle worker shuts down
+  crash_restart_delay: 2  # seconds before restart after crash
+  max_memory_mb: 512  # max memory per worker
+  max_cpu_percent: 80  # max CPU usage per worker
+
+mcp:
+  server:
+    name: "distributed-coding-orchestrator"
+    version: "1.0.0"
+    description: "Orchestrates hundreds of coding agents for distributed development"
+    port: 3000
+    host: "localhost"
+  tools:
+    spawn_workers:
+      name: "spawn_workers"
+      description: "Start distributed coding agents for a feature"
+      max_workers: 200
+    get_status:
+      name: "get_status"
+      description: "Get real-time status of all agents"
+    kill_all:
+      name: "kill_all"
+      description: "Stop all running agents"
+    monitor_agent:
+      name: "monitor_agent"
+      description: "Get detailed info about specific agent"
+
+task_types:
+  frontend:
+    tools: ["file_editor", "css_tools", "js_tools"]
+    max_concurrent: 20
+    priority: 1
+  backend:
+    tools: ["file_editor", "api_tools", "db_tools"]
+    max_concurrent: 30
+    priority: 2
+  test:
+    tools: ["file_editor", "test_runner", "coverage_tools"]
+    max_concurrent: 15
+    priority: 3
+  docs:
+    tools: ["file_editor", "markdown_tools"]
+    max_concurrent: 10
+    priority: 4
+
+logging:
+  format: "[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  files:
+    orchestrator: "./logs/orchestrator.log"
+    workers: "./logs/workers.log"
+    mcp: "./logs/mcp.log"
+    errors: "./logs/errors.log"
+  rotation:
+    max_size: "10MB"
+    backup_count: 5
+
+monitoring:
+  metrics_interval: 30  # seconds between metric collection
+  alert_thresholds:
+    worker_failure_rate: 0.1  # 10% failure rate triggers alert
+    memory_usage: 0.8  # 80% memory usage triggers alert
+    task_queue_size: 100  # tasks in queue triggers alert
+    response_time: 60  # seconds response time triggers alert
+
+network:
+  connection_timeout: 30
+  read_timeout: 60
+  max_connections: 100
+  keepalive: true
+
+security:
+  enable_auth: false  # Disabled for local development
+  api_key: null
+  rate_limit:
+    requests_per_minute: 1000
+    burst_limit: 100
+
+development:
+  auto_reload: true
+  test_mode: false
+  mock_llm: false  # Use real LLM calls
+  fixture_data: "./tests/fixtures/"

@@ -1,0 +1,39 @@
+{
+  "name": "distributed-coding-orchestrator-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for distributed coding agent orchestration",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "distributed-coding-orchestrator": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "dev": "tsc --watch",
+    "start": "node build/index.js",
+    "prepare": "npm run build"
+  },
+  "files": [
+    "build"
+  ],
+  "dependencies": {
+    "fastmcp": "^1.0.0",
+    "zod": "^3.22.0",
+    "yaml": "^2.3.0",
+    "ioredis": "^5.3.0",
+    "child_process": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "distributed",
+    "agents",
+    "orchestration"
+  ],
+  "author": "Distributed Coding Agent System",
+  "license": "MIT"
+}
